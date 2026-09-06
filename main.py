@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from playwright.async_api import async_playwright
 
-BOT_TOKEN = "8918721301:AAGQomTKJ5vtViPRyAhHAZ51_eEmJk1v25I"
+BOT_TOKEN = "YOUR_NEW_TELEGRAM_BOT_TOKEN_HERE"
 USER_MOBILE = "8660060417"
 
 sessions = {}
@@ -18,9 +18,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         pw = await async_playwright().start()
         
-        # एंटी-डिटेक्शन फ़्लैग्स के साथ ब्राउज़र शुरू करें
+        # Decodo Proxy सेटिंग्स के साथ ब्राउज़र लॉन्च करें
         browser = await pw.chromium.launch(
             headless=True,
+            proxy={
+                "server": "http://dc.decodo.com:10001",
+                "username": "sph89ams7x",
+                "password": "7I5B3o=tWJqno5WJIV"
+            },
             args=[
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -30,7 +35,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         )
         
-        # असली यूज़र जैसा व्यवहार बनाने के लिए सेटिंग्स
         context_page = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 720},
@@ -38,19 +42,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         page = await context_page.new_page()
-        
-        # ऑटोमेशन फ़्लैग को छुपाने के लिए स्क्रिप्ट
         await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
         await page.goto("https://pocketfm.com/login", wait_until="domcontentloaded", timeout=60000)
         await asyncio.sleep(5)
 
-        # लचीला इनपुट सेलेक्टर
         input_box = await page.wait_for_selector('input[type="tel"], input[type="number"], input[name="phone"], input', timeout=25000)
         await input_box.fill(USER_MOBILE)
         await asyncio.sleep(1)
 
-        # सबमिट बटन ढूँढकर क्लिक करें
         submit_btn = await page.query_selector('button[type="submit"], button:has-text("Continue"), button:has-text("Send OTP"), button')
         if submit_btn:
             await submit_btn.click()
@@ -59,7 +59,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("OTP यहाँ टाइप करके भेजें:")
     except Exception as e:
         print("Start Error:", e)
-        await update.message.reply_text("लॉगिन एरर! सर्वर द्वारा ब्लॉक किया गया या टाइमआउट हो गया। कृपया फिर से /start करें।")
+        await update.message.reply_text("लॉगिन एरर! कृपया फिर से /start करें।")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -89,8 +89,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "लॉगिन सफल रहा! 🎉\n\n"
                 "अब शो का नाम और एपिसोड रेंज भेजें।\n\n"
                 "उदाहरण:\n"
-                "- Brahmyoddha Ep 42 (सिंगल एपिसोड के लिए)\n"
-                "- Brahmyoddha 1-100 (1 से 100 तक रिकॉर्ड करने के लिए)"
+                "- Brahmyoddha Ep 42\n"
+                "- Brahmyoddha 1-100"
             )
         except Exception as e:
             print("OTP Error:", e)
