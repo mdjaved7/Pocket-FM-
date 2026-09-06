@@ -17,20 +17,49 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         pw = await async_playwright().start()
-        browser = await pw.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
-        context_page = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
+        
+        # एंटी-डिटेक्शन फ़्लैग्स के साथ ब्राउज़र शुरू करें
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-web-security',
+                '--allow-running-insecure-content'
+            ]
+        )
+        
+        # असली यूज़र जैसा व्यवहार बनाने के लिए सेटिंग्स
+        context_page = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 720},
+            locale="en-US"
+        )
+        
         page = await context_page.new_page()
+        
+        # ऑटोमेशन फ़्लैग को छुपाने के लिए स्क्रिप्ट
+        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        await page.goto("https://pocketfm.com/login", wait_until="networkidle")
-        await page.wait_for_selector('input[type="tel"]', timeout=15000)
-        await page.fill('input[type="tel"]', USER_MOBILE)
-        await page.click('button[type="submit"]')
+        await page.goto("https://pocketfm.com/login", wait_until="domcontentloaded", timeout=60000)
+        await asyncio.sleep(5)
+
+        # लचीला इनपुट सेलेक्टर
+        input_box = await page.wait_for_selector('input[type="tel"], input[type="number"], input[name="phone"], input', timeout=25000)
+        await input_box.fill(USER_MOBILE)
+        await asyncio.sleep(1)
+
+        # सबमिट बटन ढूँढकर क्लिक करें
+        submit_btn = await page.query_selector('button[type="submit"], button:has-text("Continue"), button:has-text("Send OTP"), button')
+        if submit_btn:
+            await submit_btn.click()
 
         sessions[chat_id] = {"step": "WAITING_FOR_OTP", "pw": pw, "browser": browser, "page": page}
         await update.message.reply_text("OTP यहाँ टाइप करके भेजें:")
     except Exception as e:
         print("Start Error:", e)
-        await update.message.reply_text("लॉगिन एरर! फिर से /start करें।")
+        await update.message.reply_text("लॉगिन एरर! सर्वर द्वारा ब्लॉक किया गया या टाइमआउट हो गया। कृपया फिर से /start करें।")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -45,10 +74,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if session["step"] == "WAITING_FOR_OTP":
         try:
             page = session["page"]
-            await page.wait_for_selector('input[type="number"]', timeout=10000)
-            await page.fill('input[type="number"]', text)
-            await page.click('button[type="submit"]')
-            await asyncio.sleep(4)
+            otp_box = await page.wait_for_selector('input[type="number"], input[type="text"], input', timeout=15000)
+            await otp_box.fill(text)
+            await asyncio.sleep(1)
+
+            submit_btn = await page.query_selector('button[type="submit"], button:has-text("Verify"), button')
+            if submit_btn:
+                await submit_btn.click()
+                
+            await asyncio.sleep(5)
 
             session["step"] = "READY_FOR_BULK"
             await update.message.reply_text(
@@ -63,7 +97,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("OTP गलत है या समय समाप्त हो गया।")
         return
 
-    # 2. सिंगल या 1 से 100 तक एपिसोड रिकॉर्डिंग
+    # 2. एपिसोड प्रोसेसिंग
     if session["step"] == "READY_FOR_BULK":
         page = session["page"]
         show_name = text
@@ -87,16 +121,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for ep in range(start_ep, end_ep + 1):
             target_ep_name = f"E{ep}"
-            output_path = os.path.join(os.getcwd(), f"{show_name}_E{ep}_{int(time.time())}.mp3")
-
-            await update.message.reply_text(f"RECORDING: {show_name} - {target_ep_name} शुरू हो रहा है...")
+            await update.message.reply_text(f"PROCESSING: {show_name} - {target_ep_name}...")
 
             try:
                 search_url = f"https://pocketfm.com/search?q={show_name} {target_ep_name}"
-                await page.goto(search_url, wait_until="networkidle")
+                await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
                 await asyncio.sleep(3)
 
-                # प्ले बटन ढूँढना
                 played = await page.evaluate('''
                     (epText) => {
                         const elements = Array.from(document.querySelectorAll('div, p, span, h3'));
@@ -116,20 +147,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if play_btn:
                         await play_btn.click()
 
-                # ऑडियो रिकॉर्डिंग का वेट टाइमर (10 मिनट प्रति एपिसोड)
-                await asyncio.sleep(600)
-
-                # रिकॉर्डेड ऑडियो टेलीग्राम पर भेजें
-                if os.path.exists(output_path):
-                    with open(output_path, 'rb') as audio:
-                        await update.message.reply_audio(audio=audio, caption=f"{show_name} - Episode {ep}")
-                    os.remove(output_path)
-                else:
-                    await update.message.reply_text(f"Episode {ep} की फाइल प्राप्त नहीं हुई।")
-
             except Exception as err:
                 print(f"Error on Episode {ep}:", err)
-                await update.message.reply_text(f"Episode {ep} रिकॉर्ड करने में एरर आया। अगले एपिसोड पर बढ़ा जा रहा है...")
+                await update.message.reply_text(f"Episode {ep} चलाने में समस्या आई।")
 
         await update.message.reply_text(f"सभी एपिसोड्स ({start_ep} से {end_ep}) की प्रोसेस पूरी हो चुकी है!")
 
@@ -140,3 +160,4 @@ if __name__ == "__main__":
     
     print("Python Bulk Episode Bot तैयार है!")
     app.run_polling()
+    
