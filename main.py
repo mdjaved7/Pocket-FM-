@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from playwright.async_api import async_playwright
 
-BOT_TOKEN = "YOUR_NEW_TELEGRAM_BOT_TOKEN_HERE"
+BOT_TOKEN = "8918721301:AAGQomTKJ5vtViPRyAhHAZ51_eEmJk1v25I"
 USER_MOBILE = "8660060417"
 
 sessions = {}
